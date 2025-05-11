@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Filters</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .welcome {
+            font-size: 1.2rem;
+            color: #333;
+        }
+        .camera-container {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 300px);
+            min-height: 400px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #764ba2;
+        }
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+            justify-content: center;
+        }
+        .filter-button {
+            padding: 8px 16px;
+            background: #fff;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .filter-button:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        .filter-button.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        .last-activity {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .last-activity h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .activity-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .activity-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            color: #666;
+        }
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="welcome" id="welcomeMessage"></div>
+            <button onclick="logout()">Logout</button>
+        </div>
+
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="controls">
+            <button id="startButton">Start Camera</button>
+            <button id="captureButton">Capture Photo</button>
+            <button id="downloadButton">Download Photo</button>
+        </div>
+
+        <div class="filters">
+            <button class="filter-button" data-filter="normal">Normal</button>
+            <button class="filter-button" data-filter="grayscale">Grayscale</button>
+            <button class="filter-button" data-filter="sepia">Sepia</button>
+            <button class="filter-button" data-filter="invert">Invert</button>
+            <button class="filter-button" data-filter="blur">Blur</button>
+            <button class="filter-button" data-filter="brightness">Brightness</button>
+            <button class="filter-button" data-filter="contrast">Contrast</button>
+            <button class="filter-button" data-filter="saturate">Saturate</button>
+            <button class="filter-button" data-filter="hue-rotate">Hue Rotate</button>
+            <button class="filter-button" data-filter="comic">Comic Book</button>
+            <button class="filter-button" data-filter="kaleidoscope">Kaleidoscope</button>
+        </div>
+
+        <div class="last-activity">
+            <h3>Last 5 Activities</h3>
+            <ul class="activity-list" id="activityList">
+                <li class="activity-item">No activity yet</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Check if user is logged in
+        window.onload = function() {
+            const currentUser = localStorage.getItem('currentUser');
+            if (!currentUser) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // Display welcome message
+            const users = JSON.parse(localStorage.getItem('users') || '{}');
+            const user = users[currentUser];
+            if (user) {
+                document.getElementById('welcomeMessage').textContent = `Welcome, ${user.name}!`;
+                
+                // Display last activities
+                const activities = JSON.parse(localStorage.getItem(`activities_${currentUser}`) || '[]');
+                updateActivityDisplay(activities);
+            }
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('currentUser');
+            window.location.href = 'login.html';
+        }
+
+        // Camera and filter functionality
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let currentFilter = 'normal';
+
+        // Start camera
+        document.getElementById('startButton').addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    } 
+                });
+                video.srcObject = stream;
+                video.play();
+
+                // Set canvas size when video is ready
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                alert('Error accessing camera. Please make sure you have granted camera permissions.');
+            }
+        });
+
+        // Capture photo
+        document.getElementById('captureButton').addEventListener('click', () => {
+            if (!video.srcObject) {
+                alert('Please start the camera first!');
+                return;
+            }
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.filter = getFilterStyle(currentFilter);
+            ctx.drawImage(video, 0, 0);
+        });
+
+        // Download photo
+        document.getElementById('downloadButton').addEventListener('click', () => {
+            if (!canvas.toDataURL()) {
+                alert('Please capture a photo first!');
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.download = `filtered-photo-${new Date().toISOString()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+
+        // Filter buttons
+        document.querySelectorAll('.filter-button').forEach(button => {
+            button.addEventListener('click', () => {
+                // Remove active class from all buttons
+                document.querySelectorAll('.filter-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Add active class to clicked button
+                button.classList.add('active');
+                
+                currentFilter = button.dataset.filter;
+                ctx.filter = getFilterStyle(currentFilter);
+                ctx.drawImage(video, 0, 0);
+
+                // Save last activity
+                const currentUser = localStorage.getItem('currentUser');
+                if (currentUser) {
+                    // Get existing activities
+                    let activities = JSON.parse(localStorage.getItem(`activities_${currentUser}`) || '[]');
+                    
+                    // Add new activity
+                    activities.unshift({
+                        filter: currentFilter,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    // Keep only last 5 activities
+                    activities = activities.slice(0, 5);
+                    
+                    // Save to localStorage
+                    localStorage.setItem(`activities_${currentUser}`, JSON.stringify(activities));
+                    
+                    // Update activity display
+                    updateActivityDisplay(activities);
+                }
+            });
+        });
+
+        // Function to update activity display
+        function updateActivityDisplay(activities) {
+            const activityList = document.getElementById('activityList');
+            if (activities.length === 0) {
+                activityList.innerHTML = '<li class="activity-item">No activity yet</li>';
+                return;
+            }
+
+            activityList.innerHTML = activities.map(activity => `
+                <li class="activity-item">
+                    Filter: ${activity.filter} at ${new Date(activity.timestamp).toLocaleString()}
+                </li>
+            `).join('');
+        }
+
+        // Filter styles
+        function getFilterStyle(filter) {
+            switch (filter) {
+                case 'normal':
+                    return 'none';
+                case 'grayscale':
+                    return 'grayscale(100%)';
+                case 'sepia':
+                    return 'sepia(100%)';
+                case 'invert':
+                    return 'invert(100%)';
+                case 'blur':
+                    return 'blur(5px)';
+                case 'brightness':
+                    return 'brightness(150%)';
+                case 'contrast':
+                    return 'contrast(200%)';
+                case 'saturate':
+                    return 'saturate(200%)';
+                case 'hue-rotate':
+                    return 'hue-rotate(90deg)';
+                case 'comic':
+                    return 'contrast(150%) saturate(150%)';
+                case 'kaleidoscope':
+                    return 'hue-rotate(180deg) saturate(200%)';
+                default:
+                    return 'none';
+            }
+        }
+    </script>
+</body>
+</html> 
